@@ -23,23 +23,29 @@ struct Node *node_db; // globally defined struct, represents the node.
 /*
 This function will initialize an empty node strucutre, provided a pointer to that strucutre
 */
-bool init_node(struct Node* node){
-    node->id  = 0;                  // default id value 0
-    node->gid = 0;                  // default gid value 0
-    node->index = 0;                // default entry count 0
-    node->data_base;                // default empty array THIS WILL LIKELY NEED TO BE AMENDED
-    node->data_base.item_count = 0; // default no items in array
-
-	reset_array(node);
+struct Node* init_node(struct Node* node){
+    struct Node* node2 = (struct Node*)umalloc(sizeof(struct Node));
+    // Set all the fields to default values
+    node2->id = 0;
+    node2->gid = 0;
+    node2->data_base.item_count = 0;
+    memset(node2->data_base.item_array, 0, sizeof(node2->data_base.item_array)); // Null out the item_array field
+    memset(node2->nnodes, 0, sizeof(node2->nnodes)); // Null out the nnodes field
+    node2->index = 0;
+    return node2;
+    //for (int i = 0; i < NUMB_OF_ENT; i++){
+    //	node->data_base.item_array[i].data_entry[0] == '\0';
+    //};
+	//reset_array(node);
     
     /* check that each item is set to what we want it intialized to e.g., !node->id, we set it to 0, so this should 
        evaluate to 1.
-    */
+
     if ((!node->id) && (!node->gid) && (!node->index) && (sizeof(node->data_base) == 0)){
         return true;
     } 
     DEBUG_PRINT("Error initializing node...\n");
-    return false;
+    return false;*/
 };
 
 bool set_node_id(struct Node* node, uint8_t id){
@@ -72,10 +78,11 @@ uint8_t generate_request_num(void){
 }
 
 // returns false when full, true when it succesfully inserts record...
-bool insert_record(struct Node *node, char* new_entry, uint8_t owner_id){
+bool insert_record(struct Node *node, char new_entry[20], uint8_t owner_id){
 
     // Variable to keep the index so we can check after the for loop to see if it worked
     int num;
+    DEBUG_PRINT("owner id %d\n new_entry %s", owner_id, new_entry);
 
     // if the item count is 40, our database for this node is full...
     if (node->data_base.item_count == NUMB_OF_ENT){
@@ -84,20 +91,21 @@ bool insert_record(struct Node *node, char* new_entry, uint8_t owner_id){
         // the item count is not 40, and since other user can randomly delete entries, we will just iterate from
         // 0 till we find the first null entry.
         for (int i = 0; i < NUMB_OF_ENT; i++){
-            if (node->data_base.item_array[i].data_entry == NULL){
-            	num = i;
-                strncpy(node->data_base.item_array[i].data_entry, new_entry, sizeof(new_entry)); 
+            if (node->data_base.item_array[i].data_entry[0] == '\0'){
+            	 num = i;
+                strncpy(node->data_base.item_array[i].data_entry, new_entry, 20); 
                 node->data_base.item_array[i].owner_id = owner_id;
                 // TODO: get time stamp... Have to ask what kind of time stamp he is looking for.
                 node->data_base.item_array[i].timestamp = seconds();
                 node->data_base.item_count += 1;
+                DEBUG_PRINT("owner id %d\n new_entry %s", node->data_base.item_array[i].owner_id, node->data_base.item_array[i].data_entry);
                 break; // NOTE: This may be required so we do not fill the entries with one insert.
             };
         };
     };
     
     //TODO: add check that the operation was succesful DONE
-    if(node->data_base.item_array[num].data_entry == NULL){
+    if(node->data_base.item_array[num].data_entry[0] == '\0'){
     	return false;    
     }
     return true;   
@@ -123,7 +131,7 @@ bool clear_node_neighbour_array(struct Node *node){
 bool delete_record(struct Node *node, uint8_t index){
     
     // empty database, or empty index, can't delete record
-    if (node->data_base.item_count == 0 || node->data_base.item_array[index].data_entry == NULL){
+    if (node->data_base.item_count == 0 || node->data_base.item_array[index].data_entry[0] == '\0'){
         return false;
     } else{
         // NOTE: This may complain NOTE: it shouldn't now missing index for the timestamp.
@@ -151,7 +159,7 @@ struct record retrieve_record(struct Node *node, uint8_t index){
 bool delete_all(struct Node *node){
     
     // empty database, or empty index, can't delete record
-    if (node->data_base.item_count == 0 || node->data_base.item_array[0].data_entry == NULL){
+    if (node->data_base.item_count == 0 || node->data_base.item_array[0].data_entry[0] == '\0'){
         return true;
     } else{
         for(int i = 0; i <= node->data_base.item_count; i++){
@@ -161,7 +169,7 @@ bool delete_all(struct Node *node){
     };
     node->data_base.item_count = 0;
     // Check to see that it worked
-    if(node->data_base.item_array[0].data_entry != NULL){
+    if(node->data_base.item_array[0].data_entry[0] != '\0'){
     	return false;
     }
     return true;
@@ -173,8 +181,8 @@ struct ResponseMessage *assemble_response_message(uint16_t gid, uint8_t request_
 	response_message->gid = gid;
 	response_message->tpe = RESPONSE;
 	response_message->request_number = request_number;
-	response_message->sender_id = sender_id;
-	response_message->receiver_id = receiver_id;
+	response_message->sender_id = receiver_id;
+	response_message->receiver_id = sender_id;
 	response_message->status = status;
 	if (!padding){
 		response_message->padding = padding;
@@ -381,9 +389,10 @@ fsm receiver(struct Node* node_db) {
 						status = (uint8_t) DB_FULL;
 					};
 					DEBUG_PRINT("\r\nCreate rec out if");
-					response_message_2 = assemble_response_message(node_db->gid, create_record_message->request_number, node_db->id, create_record_message->receiver_id, status, 0, array);
+					response_message_2 = assemble_response_message(node_db->gid, create_record_message->request_number, create_record_message->sender_id, create_record_message->receiver_id, status, 0, array);
 					DEBUG_PRINT("\r\nCreate rec sending to sender");
 					call sender(response_message_2, done_case);
+					release;
 
 				};
 				
@@ -421,7 +430,7 @@ fsm receiver(struct Node* node_db) {
 					};
 					
 					DEBUG_PRINT("\r\nDelete assemble le response");
-					response_message_3 = assemble_response_message(node_db->gid, delete_record_message->request_number, node_db->id, delete_record_message->receiver_id, status, 0, array);
+					response_message_3 = assemble_response_message(node_db->gid, delete_record_message->request_number, delete_record_message->sender_id, delete_record_message->receiver_id, status, 0, array);
 					call sender(response_message_3, done_case);
 
 				};
@@ -450,7 +459,7 @@ fsm receiver(struct Node* node_db) {
 
 					} else {
 						status = (uint8_t) SUCCESS;
-						response_message_4 = assemble_response_message(node_db->gid, retreive_record_message->request_number, node_db->id, retreive_record_message->receiver_id, status, 0, retrieved_record.data_entry);
+						response_message_4 = assemble_response_message(node_db->gid, retreive_record_message->request_number, retreive_record_message->sender_id, retreive_record_message->receiver_id, status, 0, retrieved_record.data_entry);
 
 					};
 					call sender(response_message_4, done_case);
@@ -559,15 +568,12 @@ fsm root {
 	#endif*/
 
 	// small change
-
+	int i = 0;
 	
 	state initialize_node:
 		// cast node_db to struct node * and malloc to it the size of a struct node
 		// setup node structure
-		node_db = (struct Node *)umalloc(sizeof(struct Node));
-
-		// Bool condition, check for failure
-		init_node(node_db);
+		node_db = init_node(node_db);
 
 		phys_cc1350(0, MAX_PKT_LEN);
 		/* 	void tcv_plug (int id, tcvplug_t *plugin)
@@ -618,7 +624,7 @@ fsm root {
 		runfsm receiver(node_db);
 
 	state menu:
-		ser_outf(menu, "\r\nGroup %d Device #%d (%d/%d records)\r\n(G)roup ID\r\n(N)ew device ID\r\n(F)ind neighbors\r\n(C)reate record on neighbor\r\n(D)elete record on neighbor\r\n(R)etrieve record from neighbor\r\n(S)how local records\r\nR(e)set local storage\r\n\r\nSelection: ", node_db->gid, node_db->id, node_db->index, NUMB_OF_ENT);
+		ser_outf(menu, "\r\nGroup %d Device #%d (%d/%d records)\r\n(G)roup ID\r\n(N)ew device ID\r\n(F)ind neighbors\r\n(C)reate record on neighbor\r\n(D)elete record on neighbor\r\n(R)etrieve record from neighbor\r\n(S)how local records\r\nR(e)set local storage\r\n\r\nSelection: ", node_db->gid, node_db->id, node_db->data_base.item_count, NUMB_OF_ENT);
 
 	state get_choice:
 		ser_inf(get_choice, "%c", &CHOICE);
@@ -760,12 +766,14 @@ fsm root {
 		if(node_db->index == 0){
 			proceed menu;
 		}
-		for (int i=0; i<node_db->index; i++) {
+		while (i<node_db->index) {
 			if(i == 0){
 				ser_out(display_neighbour_nodes, "\r\nNeighbors: ");
 			}
 			ser_outf(display_neighbour_nodes, "%u, ", node_db->nnodes[i]);
+			i+=1;
 		}
+		i = 0;
 		proceed menu;
 
 	/*
@@ -917,13 +925,17 @@ fsm root {
 		ser_out(display_db, "\r\nIndex\tTime Stamp\t\tOwner ID\tRecord Data");
 		
 	state loop_through_data:
+		DEBUG_PRINT("\r\nitem count: %d", node_db->data_base.item_count);
 		if(node_db->data_base.item_count != 0){
-			for(int i = 0; i <= node_db->data_base.item_count; i++){
-				ser_outf(loop_through_data, "\r\n%d\t%u\t\t\t%u\t%s", i, node_db->data_base.item_array[i].timestamp, node_db->data_base.item_array[i].owner_id, node_db->data_base.item_array[i].data_entry);
+			//int i = 0;
+			while(i <= node_db->data_base.item_count){
+				i+=1;
+				ser_outf(loop_through_data, "\r\n%d\t%u\t\t\t%u\t\t%s", i, node_db->data_base.item_array[i].timestamp, node_db->data_base.item_array[i].owner_id, node_db->data_base.item_array[i].data_entry);
 			}
+			i = 0;
 		}
-		ser_out(loop_through_data, "\r\n");
-		proceed menu;
+		ser_out(menu, "\r\n");
+		//proceed menu;
 
 	state del_local:
 		delete_all(node_db);
